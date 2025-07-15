@@ -2,7 +2,7 @@
 
 import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect } from 'react';
 import { User } from '@/lib/types';
-import { login as apiLogin, logout as apiLogout, getMe } from '@/lib/api';
+import { authApi } from '@/lib/api';
 import { PermissionsProvider, usePermissions } from '@/context/PermissionsContext';
 
 interface AuthContextType {
@@ -12,7 +12,7 @@ interface AuthContextType {
   loading: boolean;
 }
 
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -21,7 +21,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const fetchUserData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await getMe();
+      const response = await authApi.getMe();
       const apiUser = response.data.user;
       
       const userData: User = {
@@ -29,13 +29,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email: apiUser.email,
         name: apiUser.user_metadata.name,
         roleId: apiUser.user_metadata.roleId,
-        role: null, // Role details will be fetched by PermissionsProvider
+        role: null, 
       };
       setUser(userData);
     } catch (error) {
       console.error("Failed to fetch user data", error);
       setUser(null);
-      apiLogout(); // Clear token if fetching user fails
+      authApi.logout(); 
     } finally {
       setLoading(false);
     }
@@ -53,8 +53,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(async (email: string, pass: string): Promise<boolean> => {
     setLoading(true);
     try {
-      await apiLogin(email, pass);
-      await fetchUserData(); // Fetch user data after successful login
+      await authApi.login(email, pass);
+      await fetchUserData(); 
       return true;
     } catch (error) {
       console.error("Login failed:", error);
@@ -65,7 +65,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchUserData]);
 
   const handleLogout = useCallback(() => {
-    apiLogout();
+    authApi.logout();
     setUser(null);
   }, []);
 
