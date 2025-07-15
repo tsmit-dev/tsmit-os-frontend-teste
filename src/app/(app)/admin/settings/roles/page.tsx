@@ -1,16 +1,19 @@
+
 "use client";
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Role } from '@/lib/types';
-import { getRoles } from '@/lib/data';
+import { rolesApi } from '@/lib/api';
 import { Lock } from 'lucide-react';
 import { RolesTable } from '@/components/roles-table';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/context/PermissionsContext';
 import { Input } from '@/components/ui/input';
 import { PageLayout } from '@/components/page-layout';
-import { AddRoleSheet } from '@/components/role-form-sheet';
+import { RoleFormSheet } from '@/components/role-form-sheet';
+import { Button } from '@/components/ui/button';
+import { PlusCircle } from 'lucide-react';
 
 export default function ManageRolesPage() {
     const router = useRouter();
@@ -20,12 +23,13 @@ export default function ManageRolesPage() {
     const { hasPermission, loadingPermissions } = usePermissions();
     const [searchTerm, setSearchTerm] = useState('');
 
-    const canAccess = hasPermission('adminSettings');
+    const canRead = hasPermission('adminRoles', 'read');
+    const canCreate = hasPermission('adminRoles', 'create');
 
     const fetchRoles = useCallback(async () => {
         setLoadingRoles(true);
         try {
-            const data = await getRoles();
+            const data = await rolesApi.getAll();
             setRoles(data);
         } catch (error) {
             console.error("Failed to fetch roles", error);
@@ -37,7 +41,7 @@ export default function ManageRolesPage() {
 
     useEffect(() => {
         if (!loadingPermissions) {
-            if (!canAccess) {
+            if (!canRead) {
                 toast({
                     title: "Acesso Negado",
                     description: "Você não tem permissão para acessar esta página.",
@@ -48,7 +52,7 @@ export default function ManageRolesPage() {
                 fetchRoles();
             }
         }
-    }, [loadingPermissions, canAccess, router, toast, fetchRoles]);
+    }, [loadingPermissions, canRead, router, toast, fetchRoles]);
 
     const filteredRoles = roles.filter(role =>
         role.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -63,9 +67,14 @@ export default function ManageRolesPage() {
         />
     );
 
-    const actionButton = (
-        <AddRoleSheet onRoleChange={fetchRoles} />
-    );
+    const actionButton = canCreate ? (
+        <RoleFormSheet onRoleChange={fetchRoles}>
+             <Button>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Adicionar Cargo
+            </Button>
+        </RoleFormSheet>
+    ) : null;
 
     return (
         <PageLayout
@@ -73,7 +82,7 @@ export default function ManageRolesPage() {
             description='Nesta página, você pode gerenciar os cargos e suas permissões.'
             icon={<Lock className="w-8 h-8 text-primary" />}
             isLoading={loadingPermissions || loadingRoles}
-            canAccess={canAccess}
+            canAccess={canRead}
             searchBar={searchBar}
             actionButton={actionButton}
         >

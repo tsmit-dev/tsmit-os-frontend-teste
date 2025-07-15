@@ -1,9 +1,10 @@
+
 "use client";
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Client } from '@/lib/types';
-import { getClients } from '@/lib/data';
+import { clientsApi } from '@/lib/api';
 import { Briefcase, PlusCircle } from 'lucide-react';
 import { ClientsTable } from '@/components/clients-table';
 import { useToast } from '@/hooks/use-toast';
@@ -21,12 +22,13 @@ export default function ManageClientsPage() {
     const { hasPermission, loadingPermissions } = usePermissions();
     const [searchTerm, setSearchTerm] = useState('');
 
-    const canAccess = hasPermission('clients');
+    const canRead = hasPermission('clients', 'read');
+    const canCreate = hasPermission('clients', 'create');
 
     const fetchClients = useCallback(async () => {
         setLoadingClients(true);
         try {
-            const data = await getClients();
+            const data = await clientsApi.getAll();
             setClients(data);
         } catch (error) {
             console.error("Failed to fetch clients", error);
@@ -38,7 +40,7 @@ export default function ManageClientsPage() {
 
     useEffect(() => {
         if (!loadingPermissions) {
-            if (!canAccess) {
+            if (!canRead) {
                 toast({
                     title: "Acesso Negado",
                     description: "Você não tem permissão para acessar esta página.",
@@ -49,7 +51,7 @@ export default function ManageClientsPage() {
                 fetchClients();
             }
         }
-    }, [loadingPermissions, canAccess, router, toast, fetchClients]);
+    }, [loadingPermissions, canRead, router, toast, fetchClients]);
     
     const filteredClients = clients.filter(client =>
         client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -66,14 +68,14 @@ export default function ManageClientsPage() {
         />
     );
 
-    const actionButton = (
+    const actionButton = canCreate ? (
         <ClientFormSheet onClientChange={fetchClients}>
             <Button>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Adicionar Cliente
             </Button>
         </ClientFormSheet>
-    );
+    ) : null;
 
     return (
         <PageLayout
@@ -81,7 +83,7 @@ export default function ManageClientsPage() {
             description='Nesta página, você pode gerenciar os clientes cadastrados no sistema.'
             icon={<Briefcase className="w-8 h-8 text-primary" />}
             isLoading={loadingPermissions || loadingClients}
-            canAccess={canAccess}
+            canAccess={canRead}
             searchBar={searchBar}
             actionButton={actionButton}
         >

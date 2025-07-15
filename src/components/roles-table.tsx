@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useMemo, useState } from 'react';
@@ -5,13 +6,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Role, PERMISSION_LABELS, PermissionKey } from "@/lib/types";
+import { Role } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Trash2, ShieldCheck, UserCog } from "lucide-react";
-import { deleteRole } from "@/lib/data";
-import { EditRoleSheet } from './role-form-sheet';
+import { rolesApi } from "@/lib/api";
+import { RoleFormSheet } from './role-form-sheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { usePermissions } from '@/context/PermissionsContext';
 
 interface RolesTableProps {
   roles: Role[];
@@ -21,12 +23,16 @@ interface RolesTableProps {
 export function RolesTable({ roles, onRoleChange }: RolesTableProps) {
     const isMobile = useIsMobile();
     const { toast } = useToast();
+    const { hasPermission } = usePermissions();
     const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
+    
+    const canUpdate = hasPermission('adminRoles', 'update');
+    const canDelete = hasPermission('adminRoles', 'delete');
 
     const handleDeleteRole = async () => {
         if (!roleToDelete) return;
         try {
-            await deleteRole(roleToDelete.id);
+            await rolesApi.remove(roleToDelete.id);
             toast({ title: "Sucesso", description: "Cargo deletado com sucesso." });
             onRoleChange();
         } catch (error: any) {
@@ -39,15 +45,50 @@ export function RolesTable({ roles, onRoleChange }: RolesTableProps) {
             setRoleToDelete(null);
         }
     };
+    
+    const ActionButtons = ({ role }: { role: Role }) => (
+        <div className="flex justify-end items-center space-x-2">
+            {canUpdate && <RoleFormSheet role={role} onRoleChange={onRoleChange}>
+                <Button variant="ghost" size="icon"><UserCog className="h-4 w-4" /></Button>
+            </RoleFormSheet>}
+            {canDelete && (
+                 <AlertDialog open={!!roleToDelete && roleToDelete.id === role.id} onOpenChange={(isOpen) => !isOpen && setRoleToDelete(null)}>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => setRoleToDelete(role)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Essa ação não pode ser desfeita. Isso irá deletar permanentemente o cargo <span className="font-bold">{roleToDelete?.name}</span> e remover o acesso dos usuários associados.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteRole}>Deletar</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            )}
+        </div>
+    );
 
-    const rolesWithLabels = useMemo(() => {
-        return roles.map(role => ({
-            ...role,
-            permissionLabels: Object.entries(role.permissions)
-                .filter(([, value]) => value)
-                .map(([key]) => PERMISSION_LABELS[key as PermissionKey])
-        }));
-    }, [roles]);
+    const PermissionBadges = ({ role }: { role: Role }) => (
+         <div className="flex flex-wrap gap-2">
+            {Object.entries(role.permissions).map(([resource, actions]) => (
+                <div key={resource} className="flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary/50">
+                    <span className="text-sm font-semibold capitalize">{resource}:</span>
+                    <div className="flex flex-wrap gap-1">
+                        {actions.map(action => (
+                            <Badge key={action} variant="secondary" className="capitalize">{action}</Badge>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
 
     const DesktopView = () => (
         <div className="border rounded-lg overflow-hidden">
@@ -60,37 +101,14 @@ export function RolesTable({ roles, onRoleChange }: RolesTableProps) {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {rolesWithLabels.map((role) => (
+                    {roles.map((role) => (
                         <TableRow key={role.id}>
                             <TableCell className="font-medium">{role.name}</TableCell>
                             <TableCell>
-                                <div className="flex flex-wrap gap-1">
-                                    {role.permissionLabels.map((label) => (
-                                        <Badge key={label} variant="outline">{label}</Badge>
-                                    ))}
-                                </div>
+                                <PermissionBadges role={role} />
                             </TableCell>
-                            <TableCell className="text-right space-x-2">
-                                <EditRoleSheet role={role} onRoleChange={onRoleChange} />
-                                <AlertDialog open={!!roleToDelete && roleToDelete.id === role.id} onOpenChange={(isOpen) => !isOpen && setRoleToDelete(null)}>
-                                    <AlertDialogTrigger asChild>
-                                        <Button variant="ghost" size="icon" onClick={() => setRoleToDelete(role)}>
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                Essa ação não pode ser desfeita. Isso irá deletar permanentemente o cargo <span className="font-bold">{roleToDelete?.name}</span> e remover o acesso dos usuários associados.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                            <AlertDialogAction onClick={handleDeleteRole}>Deletar</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
+                            <TableCell className="text-right">
+                                <ActionButtons role={role} />
                             </TableCell>
                         </TableRow>
                     ))}
@@ -101,46 +119,20 @@ export function RolesTable({ roles, onRoleChange }: RolesTableProps) {
 
     const MobileView = () => (
         <div className="grid gap-4">
-            {rolesWithLabels.map((role) => (
+            {roles.map((role) => (
                 <Card key={role.id}>
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <UserCog className="h-5 w-5" />
-                            {role.name}
+                        <CardTitle className="flex items-center justify-between">
+                           <span className="flex items-center gap-2">
+                             <ShieldCheck className="h-5 w-5" />
+                             {role.name}
+                           </span>
+                           <ActionButtons role={role} />
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-2">
-                        <div className="flex items-start gap-2">
-                            <ShieldCheck className="h-4 w-4 text-muted-foreground mt-1" />
-                            <div className="flex flex-wrap gap-1">
-                                {role.permissionLabels.map((label) => (
-                                    <Badge key={label} variant="secondary">{label}</Badge>
-                                ))}
-                            </div>
-                        </div>
+                    <CardContent>
+                        <PermissionBadges role={role} />
                     </CardContent>
-                    <CardFooter className="flex justify-end space-x-2">
-                        <EditRoleSheet role={role} onRoleChange={onRoleChange} />
-                        <AlertDialog open={!!roleToDelete && roleToDelete.id === role.id} onOpenChange={(isOpen) => !isOpen && setRoleToDelete(null)}>
-                            <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={() => setRoleToDelete(role)}>
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                    Essa ação não pode ser desfeita. Isso irá deletar permanentemente o cargo <span className="font-bold">{roleToDelete?.name}</span> e remover o acesso dos usuários associados.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleDeleteRole}>Deletar</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                    </CardFooter>
                 </Card>
             ))}
         </div>

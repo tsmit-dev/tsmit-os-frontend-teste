@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
 import { Client, ProvidedService } from "@/lib/types";
-import { deleteClient, getProvidedServices } from "@/lib/data";
+import { clientsApi, servicesApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -12,6 +13,7 @@ import { Badge } from "./ui/badge";
 import { Edit, Trash2, User, Briefcase, FileText } from "lucide-react";
 import { ClientFormSheet } from "./client-form-sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { usePermissions } from "@/context/PermissionsContext";
 
 interface ClientsTableProps {
   clients: Client[];
@@ -21,15 +23,19 @@ interface ClientsTableProps {
 export function ClientsTable({ clients, onClientChange }: ClientsTableProps) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
   const [providedServices, setProvidedServices] = useState<ProvidedService[]>([]);
   
+  const canUpdate = hasPermission('clients', 'update');
+  const canDelete = hasPermission('clients', 'delete');
+
   const servicesMap = new Map(providedServices.map(s => [s.id, s.name]));
 
   useEffect(() => {
     async function fetchServices() {
       try {
-        const services = await getProvidedServices();
+        const services = await servicesApi.getAll();
         setProvidedServices(services);
       } catch (error) {
         toast({ title: "Erro", description: "Falha ao carregar os serviços.", variant: "destructive" });
@@ -41,7 +47,7 @@ export function ClientsTable({ clients, onClientChange }: ClientsTableProps) {
   const handleDelete = async () => {
     if (!clientToDelete) return;
     try {
-      await deleteClient(clientToDelete.id);
+      await clientsApi.remove(clientToDelete.id);
       toast({ title: "Sucesso", description: "Cliente deletado." });
       onClientChange();
     } catch (error) {
@@ -50,6 +56,42 @@ export function ClientsTable({ clients, onClientChange }: ClientsTableProps) {
       setClientToDelete(null);
     }
   };
+
+  const actionButtons = (client: Client) => (
+    <div className="flex justify-end space-x-2">
+      {canUpdate && (
+        <ClientFormSheet client={client} onClientChange={onClientChange}>
+          <Button variant="outline" size="icon">
+            <Edit className="h-4 w-4" />
+            <span className="sr-only">Editar</span>
+          </Button>
+        </ClientFormSheet>
+      )}
+      
+      {canDelete && (
+        <AlertDialog open={!!clientToDelete && clientToDelete.id === client.id} onOpenChange={(isOpen) => !isOpen && setClientToDelete(null)}>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" size="icon" onClick={() => setClientToDelete(client)}>
+              <Trash2 className="h-4 w-4" />
+              <span className="sr-only">Deletar</span>
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Esta ação não pode ser desfeita. Isso irá deletar permanentemente o cliente <span className="font-bold">{clientToDelete?.name}</span>.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDelete}>Deletar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </div>
+  );
 
   const DesktopView = () => (
     <div className="border rounded-md bg-card">
@@ -79,34 +121,8 @@ export function ClientsTable({ clients, onClientChange }: ClientsTableProps) {
                   </div>
                 </TableCell>
                 <TableCell>{client.cnpj || 'N/A'}</TableCell>
-                <TableCell className="text-right space-x-2">
-                  <ClientFormSheet client={client} onClientChange={onClientChange}>
-                    <Button variant="outline" size="icon">
-                      <Edit className="h-4 w-4" />
-                      <span className="sr-only">Editar</span>
-                    </Button>
-                  </ClientFormSheet>
-                  
-                  <AlertDialog open={!!clientToDelete && clientToDelete.id === client.id} onOpenChange={(isOpen) => !isOpen && setClientToDelete(null)}>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="destructive" size="icon" onClick={() => setClientToDelete(client)}>
-                        <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">Deletar</span>
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Esta ação não pode ser desfeita. Isso irá deletar permanentemente o cliente <span className="font-bold">{clientToDelete?.name}</span>.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete}>Deletar</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                <TableCell className="text-right">
+                  {actionButtons(client)}
                 </TableCell>
               </TableRow>
             ))
@@ -151,33 +167,8 @@ export function ClientsTable({ clients, onClientChange }: ClientsTableProps) {
                             </div>
                         </div>
                     </CardContent>
-                    <CardFooter className="flex justify-end space-x-2">
-                        <ClientFormSheet client={client} onClientChange={onClientChange}>
-                            <Button variant="outline" size="icon">
-                                <Edit className="h-4 w-4" />
-                                <span className="sr-only">Editar</span>
-                            </Button>
-                        </ClientFormSheet>
-                        <AlertDialog open={!!clientToDelete && clientToDelete.id === client.id} onOpenChange={(isOpen) => !isOpen && setClientToDelete(null)}>
-                            <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="icon" onClick={() => setClientToDelete(client)}>
-                                    <Trash2 className="h-4 w-4" />
-                                    <span className="sr-only">Deletar</span>
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                    Esta ação não pode ser desfeita. Isso irá deletar permanentemente o cliente <span className="font-bold">{clientToDelete?.name}</span>.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleDelete}>Deletar</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
+                    <CardFooter>
+                      {actionButtons(client)}
                     </CardFooter>
                 </Card>
             ))

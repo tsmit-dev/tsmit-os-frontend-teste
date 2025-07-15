@@ -8,7 +8,7 @@ import { Status } from "@/lib/types";
 import { Skeleton } from "./ui/skeleton";
 
 export interface StatusBadgeProps {
-  status: Status;
+  status?: Status; // Allow status to be optional
   isLoading?: boolean;
 }
 

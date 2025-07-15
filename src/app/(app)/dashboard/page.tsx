@@ -1,12 +1,13 @@
+
 "use client";
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, ReactNode } from 'react';
+import { useEffect, useState, ReactNode, useCallback } from 'react';
 import { usePermissions } from '@/context/PermissionsContext';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { getServiceOrders } from '@/lib/data';
+import { osApi } from '@/lib/api';
 import { ServiceOrder } from '@/lib/types';
 import { LayoutDashboard, Users } from 'lucide-react';
 import { useStatuses } from '@/hooks/use-statuses';
@@ -36,30 +37,17 @@ export default function DashboardPage() {
     const [analystDeliveredCounts, setAnalystDeliveredCounts] = useState<Record<string, number>>({});
     const [loadingStats, setLoadingStats] = useState(true);
 
-    useEffect(() => {
-        if (!loadingPermissions && !loadingStatuses) {
-            if (!hasPermission('dashboard')) {
-                toast({
-                    title: "Acesso Negado",
-                    description: "Você não tem permissão para acessar o dashboard.",
-                    variant: "destructive",
-                });
-                router.replace('/');
-                return;
-            }
-            fetchStats();
-        }
-    }, [loadingPermissions, loadingStatuses, hasPermission, router, toast, statuses]);
+    const fetchStats = useCallback(async () => {
+        if (loadingStatuses) return;
 
-    const fetchStats = async () => {
         setLoadingStats(true);
         try {
-            const allOrders = await getServiceOrders();
+            const allOrders = await osApi.getAll();
             const finalStatusIds = statuses.filter(s => s.isFinal).map(s => s.id);
             
-            const orders = allOrders.filter(order => !finalStatusIds.includes(order.status.id));
+            const activeOrders = allOrders.filter(order => !finalStatusIds.includes(order.statusId));
             
-            setTotalOrders(orders.length);
+            setTotalOrders(activeOrders.length);
 
             const newStatusCounts: Record<string, number> = {};
             statuses.forEach(status => {
@@ -70,18 +58,21 @@ export default function DashboardPage() {
             const newAnalystDeliveredCounts: Record<string, number> = {};
 
             allOrders.forEach((order: ServiceOrder) => {
-                if (newStatusCounts[order.status.id] !== undefined) {
-                    newStatusCounts[order.status.id]++;
+                // Count statuses for active orders
+                if (!finalStatusIds.includes(order.statusId)) {
+                    newStatusCounts[order.statusId] = (newStatusCounts[order.statusId] || 0) + 1;
                 }
 
+                // Count OS created by analyst
                 const creatorAnalystName = order.analyst || 'Não Atribuído';
                 newAnalystCreatedCounts[creatorAnalystName] = (newAnalystCreatedCounts[creatorAnalystName] || 0) + 1;
 
-                if (finalStatusIds.includes(order.status.id) && order.logs) {
+                // Count OS delivered by analyst
+                if (finalStatusIds.includes(order.statusId) && order.logs && order.logs.length > 0) {
                     const finalLog = order.logs
                         .slice()
                         .reverse()
-                        .find(log => finalStatusIds.includes(log.toStatus));
+                        .find(log => finalStatusIds.includes(log.toStatusId));
                     
                     if (finalLog) {
                         const deliveredAnalystName = finalLog.responsible || 'Não Atribuído';
@@ -103,9 +94,24 @@ export default function DashboardPage() {
         } finally {
             setLoadingStats(false);
         }
-    };
+    }, [statuses, loadingStatuses, toast]);
 
-    if (loadingPermissions || loadingStatuses || !hasPermission('dashboard') || loadingStats) {
+    useEffect(() => {
+        if (!loadingPermissions) {
+            if (!hasPermission('dashboard', 'read')) {
+                toast({
+                    title: "Acesso Negado",
+                    description: "Você não tem permissão para acessar o dashboard.",
+                    variant: "destructive",
+                });
+                router.replace('/');
+                return;
+            }
+            fetchStats();
+        }
+    }, [loadingPermissions, hasPermission, router, toast, fetchStats]);
+
+    if (loadingPermissions || loadingStatuses || !hasPermission('dashboard', 'read') || loadingStats) {
         return (
             <div className="flex flex-col gap-4">
                 <Skeleton className="h-8 w-48" />
@@ -119,13 +125,16 @@ export default function DashboardPage() {
             </div>
         );
     }
-
-    const statusStatsArray: StatusStats[] = statuses.map(status => ({
+    
+    // We only want to display stats for statuses that are not final
+    const activeStatuses = statuses.filter(s => !s.isFinal);
+    
+    const statusStatsArray: StatusStats[] = activeStatuses.map(status => ({
         label: status.name,
         count: statusCounts[status.id] || 0,
         icon: renderIcon(status.icon),
         color: status.color,
-    }));
+    })).filter(stat => stat.count > 0); // Optionally, only show statuses with active OS
 
     const analystCreatedStatsArray: AnalystStats[] = Object.entries(analystCreatedCounts).map(([name, count]) => ({
         name,

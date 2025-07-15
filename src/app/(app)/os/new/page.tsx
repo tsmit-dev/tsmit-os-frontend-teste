@@ -1,3 +1,4 @@
+
 "use client";
 
 import { z } from "zod";
@@ -18,14 +19,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { addServiceOrder, getClients } from "@/lib/data";
+import { clientsApi, osApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { PlusCircle } from "lucide-react";
 import { Client } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/context/PermissionsContext";
 import { useAuth } from "@/components/auth-provider";
-import { useStatuses } from "@/hooks/use-statuses";
 
 const formSchema = z.object({
   clientId: z.string({ required_error: "Selecione um cliente." }),
@@ -36,17 +36,18 @@ const formSchema = z.object({
   equipBrand: z.string().min(2, "Marca é obrigatória."),
   equipModel: z.string().min(1, "Modelo é obrigatório."),
   equipSerial: z.string().min(1, "Número de série é obrigatória."),
-  problem: z.string().min(10, "Descrição do problema deve ter no mínimo 10 caracteres."),
+  reportedProblem: z.string().min(10, "Descrição do problema deve ter no mínimo 10 caracteres."),
 });
 
 export default function NewOsPage() {
     const { hasPermission, loadingPermissions } = usePermissions();
     const { user } = useAuth();
-    const { statuses, loading: loadingStatuses } = useStatuses();
     const router = useRouter();
     const { toast } = useToast();
     const [clients, setClients] = useState<Client[]>([]);
     const [loadingClients, setLoadingClients] = useState(true);
+
+    const canCreate = hasPermission('os', 'create');
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -58,52 +59,44 @@ export default function NewOsPage() {
             equipBrand: "",
             equipModel: "",
             equipSerial: "",
-            problem: "",
+            reportedProblem: "",
         },
     });
 
     useEffect(() => {
         if (!loadingPermissions) {
-            if (!hasPermission('os')) {
+            if (!canCreate) {
                 toast({ title: "Acesso Negado", description: "Você não tem permissão para criar novas OS.", variant: "destructive" });
                 router.replace('/dashboard');
             }
         }
-    }, [loadingPermissions, hasPermission, router, toast]);
+    }, [loadingPermissions, canCreate, router, toast]);
 
     useEffect(() => {
         async function fetchClients() {
-            if (!loadingPermissions && hasPermission('os')) {
+            if (canCreate) {
                 try {
-                    setClients(await getClients());
+                    setClients(await clientsApi.getAll());
                 } catch (error) {
                     toast({ title: "Erro", description: "Não foi possível carregar os clientes.", variant: "destructive" });
                 } finally {
                     setLoadingClients(false);
                 }
+            } else {
+              setLoadingClients(false);
             }
         }
         fetchClients();
-    }, [loadingPermissions, hasPermission, toast]);
+    }, [canCreate, toast]);
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
-        if (!user || !hasPermission('os')) {
+        if (!user || !canCreate) {
             toast({ title: "Acesso Negado", variant: "destructive" });
             return;
         }
 
-        const initialStatus = statuses.find(s => s.isInitial);
-        if (!initialStatus) {
-            toast({
-                title: "Configuração Necessária",
-                description: "Nenhum status inicial foi definido.",
-                variant: "destructive",
-            });
-            return;
-        }
-
         try {
-            const newOrder = await addServiceOrder({
+            const newOrderPayload = {
                 clientId: values.clientId,
                 collaborator: {
                     name: values.collaboratorName,
@@ -116,13 +109,15 @@ export default function NewOsPage() {
                     model: values.equipModel,
                     serialNumber: values.equipSerial,
                 },
-                reportedProblem: values.problem,
-                analyst: user.name,
-                statusId: initialStatus.id,
-            });
+                reportedProblem: values.reportedProblem,
+                analyst: user.name, // The backend expects the analyst's name
+            };
+
+            const newOrder = await osApi.create(newOrderPayload);
+            
             toast({
                 title: "Sucesso!",
-                description: `OS ${newOrder.id} criada.`,
+                description: `OS ${newOrder.orderNumber} criada.`,
             });
             router.push(`/os/${newOrder.id}`);
         } catch (error) {
@@ -134,7 +129,7 @@ export default function NewOsPage() {
         }
     }
     
-    if (loadingPermissions || loadingClients || loadingStatuses) {
+    if (loadingPermissions || loadingClients) {
         return <NewOsSkeleton />;
     }
 
@@ -197,13 +192,13 @@ export default function NewOsPage() {
                         <CardDescription>Descreva o problema relatado. O analista responsável será você ({user?.name}).</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <FormField control={form.control} name="problem" render={({ field }) => (
+                        <FormField control={form.control} name="reportedProblem" render={({ field }) => (
                             <FormItem><FormLabel>Problema Relatado</FormLabel><FormControl><Textarea rows={5} placeholder="Descreva em detalhes o problema..." {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
                     </CardContent>
                 </Card>
                 <div className="flex justify-end">
-                    <Button type="submit" className="w-full sm:w-auto" disabled={form.formState.isSubmitting || !hasPermission('os')}>
+                    <Button type="submit" className="w-full sm:w-auto" disabled={form.formState.isSubmitting || !canCreate}>
                         {form.formState.isSubmitting ? "Salvando..." : "Criar OS"}
                     </Button>
                 </div>

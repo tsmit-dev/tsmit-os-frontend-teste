@@ -1,6 +1,7 @@
+
 "use client";
 
-import { ServiceOrder } from "@/lib/types";
+import { ServiceOrder, Status } from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -14,8 +15,9 @@ import { useRouter } from "next/navigation";
 import { StatusBadge } from "./status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "./ui/card";
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, HardDrive, User, Calendar, Tag } from "lucide-react";
+import { ChevronLeft, ChevronRight, HardDrive, User, Calendar } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useStatuses } from "@/hooks/use-statuses";
 
 interface OsTableProps {
   orders: ServiceOrder[];
@@ -27,7 +29,10 @@ const ITEMS_PER_PAGE = 10;
 export function OsTable({ orders, title }: OsTableProps) {
   const router = useRouter();
   const isMobile = useIsMobile();
+  const { statuses, loading: loadingStatuses } = useStatuses();
   const [currentPage, setCurrentPage] = useState(1);
+
+  const statusMap = new Map(statuses.map(s => [s.id, s]));
 
   const totalPages = Math.ceil(orders.length / ITEMS_PER_PAGE);
   const paginatedOrders = orders.slice(
@@ -47,6 +52,10 @@ export function OsTable({ orders, title }: OsTableProps) {
     e.stopPropagation();
     router.push(`/os/${orderId}`);
   };
+  
+  const getStatusById = (statusId: string): Status | undefined => {
+    return statusMap.get(statusId);
+  }
 
   const PaginationControls = () => (
     totalPages > 1 && (
@@ -91,20 +100,24 @@ export function OsTable({ orders, title }: OsTableProps) {
         </TableHeader>
         <TableBody>
           {paginatedOrders.length > 0 ? (
-            paginatedOrders.map((order) => (
+            paginatedOrders.map((order) => {
+              const status = getStatusById(order.statusId);
+              return (
               <TableRow key={order.id} className="cursor-pointer" onClick={(e) => handleViewDetails(e, order.id)}>
                 <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                <TableCell>{order.clientName}</TableCell>
+                <TableCell>{order.clientSnapshot.name}</TableCell>
                 <TableCell>{order.equipment.brand} {order.equipment.model}</TableCell>
                 <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
-                <TableCell><StatusBadge status={order.status} /></TableCell>
+                <TableCell>
+                  {status && <StatusBadge status={status} />}
+                </TableCell>
                 <TableCell className="text-right">
                   <Button variant="outline" size="sm" onClick={(e) => handleViewDetails(e, order.id)}>
                     Ver Detalhes
                   </Button>
                 </TableCell>
               </TableRow>
-            ))
+            )})
           ) : (
             <TableRow>
               <TableCell colSpan={6} className="text-center h-24">
@@ -120,18 +133,20 @@ export function OsTable({ orders, title }: OsTableProps) {
   const MobileView = () => (
     <div className="grid gap-4">
         {paginatedOrders.length > 0 ? (
-            paginatedOrders.map((order) => (
+            paginatedOrders.map((order) => {
+              const status = getStatusById(order.statusId);
+              return (
                 <Card key={order.id} onClick={(e) => handleViewDetails(e, order.id)} className="cursor-pointer">
                     <CardHeader>
                         <CardTitle className="flex justify-between items-center">
                             <span className="font-bold">{order.orderNumber}</span>
-                            <StatusBadge status={order.status} />
+                            {status && <StatusBadge status={status} />}
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
                         <div className="flex items-center gap-2">
                             <User className="h-4 w-4 text-muted-foreground" />
-                            <span>{order.clientName}</span>
+                            <span>{order.clientSnapshot.name}</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <HardDrive className="h-4 w-4 text-muted-foreground" />
@@ -148,7 +163,7 @@ export function OsTable({ orders, title }: OsTableProps) {
                       </Button>
                     </CardFooter>
                 </Card>
-            ))
+            )})
         ) : (
             <div className="text-center py-12">
                 <p>Nenhuma ordem de serviço encontrada.</p>

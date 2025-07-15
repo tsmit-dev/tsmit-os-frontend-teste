@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getServiceOrders } from '@/lib/data';
+import { osApi } from '@/lib/api';
 import { ServiceOrder } from '@/lib/types';
 import { OsTable } from '@/components/os-table';
 import { usePermissions } from '@/context/PermissionsContext';
@@ -24,12 +25,12 @@ export default function AllOsPage() {
     const { statuses, loading: loadingStatuses } = useStatuses();
     const [showFinalized, setShowFinalized] = useState(false);
 
-    const canAccess = hasPermission('os');
+    const canRead = hasPermission('os', 'read');
 
     const fetchOrders = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await getServiceOrders();
+            const data = await osApi.getAll();
             setOrders(data);
         } catch (error) {
             console.error("Failed to fetch service orders", error);
@@ -41,7 +42,7 @@ export default function AllOsPage() {
 
     useEffect(() => {
         if (!loadingPermissions && !loadingStatuses) {
-            if (!canAccess) {
+            if (!canRead) {
                 toast({
                     title: "Acesso Negado",
                     description: "Você não tem permissão para acessar esta página.",
@@ -52,25 +53,28 @@ export default function AllOsPage() {
                 fetchOrders();
             }
         }
-    }, [loadingPermissions, loadingStatuses, canAccess, router, toast, fetchOrders]);
+    }, [loadingPermissions, loadingStatuses, canRead, router, toast, fetchOrders]);
 
     const finalStatusIds = statuses.filter(s => s.isFinal).map(s => s.id);
+    const statusMap = new Map(statuses.map(s => [s.id, s.name]));
 
     const filteredOrders = orders.filter(order => {
-        const isFinalized = finalStatusIds.includes(order.status.id);
+        const isFinalized = finalStatusIds.includes(order.statusId);
         if (!showFinalized && isFinalized) {
             return false;
         }
+        
+        const statusName = statusMap.get(order.statusId) || '';
 
         return (
             order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (order.clientName && order.clientName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (order.clientSnapshot.name && order.clientSnapshot.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
             order.equipment.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
             order.equipment.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
             order.equipment.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
             order.equipment.serialNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (order.analyst && order.analyst.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            order.status.name.toLowerCase().includes(searchTerm.toLowerCase())
+            statusName.toLowerCase().includes(searchTerm.toLowerCase())
         );
     });
 
@@ -99,7 +103,7 @@ export default function AllOsPage() {
             title="Todas as Ordens de Serviço"
             icon={<ListTodo className="w-8 h-8 text-primary" />}
             isLoading={loadingPermissions || loadingStatuses || loading}
-            canAccess={canAccess}
+            canAccess={canRead}
             searchBar={searchBar}
             actionButton={actionButton}
         >

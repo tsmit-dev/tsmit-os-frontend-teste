@@ -11,10 +11,8 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { usePermissions } from "@/context/PermissionsContext";
@@ -26,8 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { db } from "@/lib/firebase"; // Import db
-import { doc, getDoc, setDoc } from "firebase/firestore"; // Import doc, getDoc, setDoc
+import { getEmailSettings, updateEmailSettings } from "@/lib/data";
 
 const formSchema = z.object({
   smtpServer: z.string().min(1, "Servidor SMTP é obrigatório."),
@@ -45,7 +42,7 @@ type EmailSettings = z.infer<typeof formSchema>;
 export function EmailSettingsForm() {
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoadingSettings, setIsLoadingSettings] = useState(true); // New state for loading settings
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const { hasPermission, loadingPermissions } = usePermissions();
 
   const form = useForm<EmailSettings>({
@@ -61,59 +58,29 @@ export function EmailSettingsForm() {
 
   const canEditSettings = hasPermission("adminSettings");
 
-  // Function to fetch email settings from Firestore
-  const getEmailSettings = async (): Promise<EmailSettings | null> => {
-    try {
-      const settingsDocRef = doc(db, 'settings', 'email');
-      const settingsSnap = await getDoc(settingsDocRef);
-      if (settingsSnap.exists()) {
-        return settingsSnap.data() as EmailSettings;
-      }
-      return null;
-    } catch (error) {
-      console.error("Failed to fetch email settings:", error);
-      toast({
-        title: "Erro ao carregar",
-        description: "Não foi possível carregar as configurações de e-mail.",
-        variant: "destructive",
-      });
-      return null;
-    }
-  };
-
-  // Function to save email settings to Firestore
-  const saveEmailSettings = async (values: EmailSettings) => {
-    try {
-      const settingsDocRef = doc(db, 'settings', 'email');
-      await setDoc(settingsDocRef, values, { merge: true }); // Use merge: true to avoid overwriting other fields
-      toast({
-        title: "Sucesso",
-        description: "Configurações de e-mail salvas com sucesso.",
-      });
-    } catch (error) {
-      console.error("Failed to save email settings:", error);
-      toast({
-        title: "Erro",
-        description: "Não foi possível salvar as configurações de e-mail.",
-        variant: "destructive",
-      });
-      throw error; // Re-throw to be caught by onSubmit
-    }
-  };
-
   useEffect(() => {
     const loadSettings = async () => {
       if (!loadingPermissions && canEditSettings) {
         setIsLoadingSettings(true);
-        const fetchedSettings = await getEmailSettings();
-        if (fetchedSettings) {
-          form.reset(fetchedSettings);
+        try {
+          const fetchedSettings = await getEmailSettings();
+          if (fetchedSettings) {
+            form.reset(fetchedSettings);
+          }
+        } catch (error) {
+          console.error("Failed to fetch email settings:", error);
+          toast({
+            title: "Erro ao carregar",
+            description: "Não foi possível carregar as configurações de e-mail.",
+            variant: "destructive",
+          });
+        } finally {
+          setIsLoadingSettings(false);
         }
-        setIsLoadingSettings(false);
       }
     };
     loadSettings();
-  }, [loadingPermissions, canEditSettings, form]);
+  }, [loadingPermissions, canEditSettings, form, toast]);
 
   async function onSubmit(values: EmailSettings) {
     if (!canEditSettings) {
@@ -127,13 +94,25 @@ export function EmailSettingsForm() {
 
     setIsSaving(true);
     try {
-      await saveEmailSettings(values);
-    } finally {
+      await updateEmailSettings(values);
+      toast({
+        title: "Sucesso",
+        description: "Configurações de e-mail salvas com sucesso.",
+      });
+    } catch (error) {
+        console.error("Failed to save email settings:", error);
+        toast({
+            title: "Erro",
+            description: "Não foi possível salvar as configurações de e-mail.",
+            variant: "destructive",
+        });
+    }
+    finally {
       setIsSaving(false);
     }
   }
 
-  if (loadingPermissions || isLoadingSettings) { // Include isLoadingSettings in the loading state
+  if (loadingPermissions || isLoadingSettings) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-full" />

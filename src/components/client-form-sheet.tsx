@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -5,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Client, ProvidedService } from "@/lib/types";
-import { addClient, updateClient, getProvidedServices } from "@/lib/data";
+import { clientsApi, servicesApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sheet,
@@ -22,7 +23,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Pencil, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 const formSchema = z.object({
   name: z.string().min(2, "Nome do cliente é obrigatório."),
@@ -62,7 +63,7 @@ export function ClientFormSheet({ client, onClientChange, children }: ClientForm
         if (isOpen) {
             setLoadingServices(true);
             try {
-                const services = await getProvidedServices();
+                const services = await servicesApi.getAll();
                 setProvidedServices(services);
             } catch (error) {
                 toast({ title: "Erro", description: "Falha ao carregar os serviços disponíveis.", variant: "destructive" });
@@ -104,10 +105,10 @@ export function ClientFormSheet({ client, onClientChange, children }: ClientForm
   const onSubmit = async (values: ClientFormData) => {
     try {
       if (client) {
-        await updateClient(client.id, values);
+        await clientsApi.update(client.id, values);
         toast({ title: "Sucesso", description: "Cliente atualizado." });
       } else {
-        await addClient(values);
+        await clientsApi.create(values);
         toast({ title: "Sucesso", description: "Cliente criado." });
       }
       handleOpenChange(false);

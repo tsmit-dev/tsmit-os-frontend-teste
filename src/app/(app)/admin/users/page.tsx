@@ -1,9 +1,10 @@
+
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { User, Role } from "@/lib/types";
-import { getUsers, getRoles } from "@/lib/data";
+import { usersApi, rolesApi } from "@/lib/api";
 import { Users as UsersIcon, PlusCircle } from "lucide-react";
 import { UsersTable } from "@/components/users-table";
 import { useToast } from "@/hooks/use-toast";
@@ -23,13 +24,21 @@ export default function ManageUsersPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const canAccess = hasPermission("adminUsers");
+  const canRead = hasPermission("adminUsers", "read");
+  const canCreate = hasPermission("adminUsers", "create");
 
   const fetchData = useCallback(async () => {
     setLoadingData(true);
     try {
-      const [usersData, rolesData] = await Promise.all([getUsers(), getRoles()]);
-      setUsers(usersData);
+      const [usersData, rolesData] = await Promise.all([usersApi.getAll(), rolesApi.getAll()]);
+      
+      const rolesMap = new Map(rolesData.map(role => [role.id, role]));
+      const usersWithRoles: User[] = usersData.map(user => ({
+        ...user,
+        role: rolesMap.get(user.roleId) || undefined, // Correctly type as Role | undefined
+      }));
+
+      setUsers(usersWithRoles);
       setRoles(rolesData);
     } catch (error) {
       console.error("Failed to fetch data", error);
@@ -45,7 +54,7 @@ export default function ManageUsersPage() {
 
   useEffect(() => {
     if (!loadingPermissions) {
-      if (!canAccess) {
+      if (!canRead) {
         router.replace("/dashboard");
         toast({
           title: "Acesso Negado",
@@ -56,7 +65,7 @@ export default function ManageUsersPage() {
         fetchData();
       }
     }
-  }, [loadingPermissions, canAccess, router, toast, fetchData]);
+  }, [loadingPermissions, canRead, router, toast, fetchData]);
 
   const filteredUsers = users.filter(
     (user) =>
@@ -74,14 +83,14 @@ export default function ManageUsersPage() {
     />
   );
   
-  const actionButton = (
+  const actionButton = canCreate ? (
     <UserFormSheet onUserChange={fetchData} roles={roles}>
       <Button>
         <PlusCircle className="mr-2 h-4 w-4" />
         Adicionar Usuário
       </Button>
     </UserFormSheet>
-  );
+  ) : null;
 
   return (
     <PageLayout
@@ -89,7 +98,7 @@ export default function ManageUsersPage() {
         description="Nesta página, você pode gerenciar os usuários cadastrados no sistema."
         icon={<UsersIcon className="w-8 h-8 text-primary" />}
         isLoading={loadingPermissions || loadingData}
-        canAccess={canAccess}
+        canAccess={canRead}
         searchBar={searchBar}
         actionButton={actionButton}
     >

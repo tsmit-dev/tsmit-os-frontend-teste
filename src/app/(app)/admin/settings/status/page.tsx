@@ -1,18 +1,18 @@
+
 "use client";
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Status } from '@/lib/types';
-import { collection, onSnapshot, orderBy, query, addDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { FileBadge, Plus } from 'lucide-react';
+import { statusesApi } from '@/lib/api';
+import { FileBadge, PlusCircle } from 'lucide-react';
 import { StatusTable } from '@/components/status-table';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/context/PermissionsContext';
 import { Input } from '@/components/ui/input';
 import { PageLayout } from '@/components/page-layout';
 import { Button } from '@/components/ui/button';
-import { StatusFormDialog, StatusFormValues } from '@/components/status-form-dialog';
+import { StatusFormDialog } from '@/components/status-form-dialog';
 
 export default function ManageStatusPage() {
     const router = useRouter();
@@ -23,30 +23,26 @@ export default function ManageStatusPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [isAddStatusDialogOpen, setAddStatusDialogOpen] = useState(false);
 
-    const canAccess = hasPermission('adminSettings');
+    const canRead = hasPermission('adminStatus', 'read');
+    const canCreate = hasPermission('adminStatus', 'create');
 
-    const fetchStatuses = useCallback(() => {
-        const q = query(collection(db, "statuses"), orderBy("order"));
-        const unsubscribe = onSnapshot(
-          q,
-          (querySnapshot) => {
-            const data: Status[] = [];
-            querySnapshot.forEach((d) => data.push({ id: d.id, ...d.data() } as Status));
-            setStatuses(data);
-            setLoadingStatuses(false);
-          },
-          (error) => {
+    const fetchStatuses = useCallback(async () => {
+        setLoadingStatuses(true);
+        try {
+            const data = await statusesApi.getAll();
+            const sortedData = data.sort((a, b) => a.order - b.order);
+            setStatuses(sortedData);
+        } catch (error) {
             console.error("Failed to fetch statuses:", error);
-            setLoadingStatuses(false);
             toast({ title: "Erro", description: "Não foi possível carregar os status.", variant: "destructive" });
-          },
-        );
-        return () => unsubscribe();
-      }, [toast]);
+        } finally {
+            setLoadingStatuses(false);
+        }
+    }, [toast]);
 
     useEffect(() => {
         if (!loadingPermissions) {
-            if (!canAccess) {
+            if (!canRead) {
                 toast({
                     title: "Acesso Negado",
                     description: "Você não tem permissão para acessar esta página.",
@@ -54,31 +50,14 @@ export default function ManageStatusPage() {
                 });
                 router.replace('/dashboard');
             } else {
-                const unsubscribe = fetchStatuses();
-                return () => unsubscribe();
+                fetchStatuses();
             }
         }
-    }, [loadingPermissions, canAccess, router, toast, fetchStatuses]);
+    }, [loadingPermissions, canRead, router, toast, fetchStatuses]);
 
     const filteredStatuses = statuses.filter(status =>
         status.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
-
-    const handleSaveStatus = async (data: StatusFormValues) => {
-        try {
-            await addDoc(collection(db, "statuses"), data);
-            toast({ title: "Sucesso!", description: "Novo status criado com sucesso." });
-            setAddStatusDialogOpen(false);
-        } catch (error) {
-          console.error("Error saving status:", error);
-          toast({
-            title: "Erro",
-            description: "Ocorreu um erro ao salvar o status.",
-            variant: "destructive",
-          });
-          throw error;
-        }
-    };
 
     const searchBar = (
         <Input
@@ -89,31 +68,33 @@ export default function ManageStatusPage() {
         />
     );
 
-    const actionButton = (
+    const actionButton = canCreate ? (
         <Button onClick={() => setAddStatusDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
+            <PlusCircle className="mr-2 h-4 w-4" />
             Adicionar Status
         </Button>
-    );
+    ) : null;
 
     return (
         <PageLayout
             title="Gerenciamento de Status"
-            description='Nesta página, você pode gerenciar os status das ordens de serviço.'
+            description='Nesta página, você pode gerenciar os status das ordens de serviço e o fluxo de trabalho.'
             icon={<FileBadge className="w-8 h-8 text-primary" />}
             isLoading={loadingPermissions || loadingStatuses}
-            canAccess={canAccess}
+            canAccess={canRead}
             searchBar={searchBar}
             actionButton={actionButton}
         >
             <StatusTable statuses={filteredStatuses} onStatusChange={fetchStatuses} />
-            <StatusFormDialog
-                open={isAddStatusDialogOpen}
-                onOpenChange={setAddStatusDialogOpen}
-                onSave={handleSaveStatus}
-                status={null}
-                allStatuses={statuses}
-            />
+            {canCreate && (
+                 <StatusFormDialog
+                    open={isAddStatusDialogOpen}
+                    onOpenChange={setAddStatusDialogOpen}
+                    onSuccess={fetchStatuses} // Use onSuccess instead of onSave
+                    status={null}
+                    allStatuses={statuses}
+                />
+            )}
         </PageLayout>
     );
 }

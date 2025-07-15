@@ -1,11 +1,12 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { User, Role } from "@/lib/types";
-import { updateUser } from "@/lib/data";
+import { usersApi, authApi } from "@/lib/api";
 import {
   Sheet,
   SheetContent,
@@ -33,25 +34,25 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Pencil, Plus } from "lucide-react";
-import { registerUser } from "@/lib/data";
-import { ScrollArea } from "./ui/scroll-area";
+import { Loader2 } from "lucide-react";
+import { usePermissions } from "@/context/PermissionsContext";
 
-const userSchema = z.object({
+const createUserSchema = z.object({
+    name: z.string().min(1, "O nome é obrigatório."),
+    email: z.string().email("E-mail inválido."),
+    roleId: z.string().min(1, "O cargo é obrigatório."),
+    password: z.string().min(6, "A senha deve ter no mínimo 6 caracteres."),
+});
+
+const updateUserSchema = z.object({
     name: z.string().min(1, "O nome é obrigatório."),
     email: z.string().email("E-mail inválido."),
     roleId: z.string().min(1, "O cargo é obrigatório."),
     password: z.string().optional(),
-  }).refine(data => {
-    // Se não for um usuário existente (ou seja, estamos criando um novo usuário), a senha é obrigatória.
-    if (!('id' in data) && (!data.password || data.password.length < 6)) {
-      return false;
-    }
-    return true;
-  }, {
-    message: "A senha é obrigatória e deve ter no mínimo 6 caracteres.",
-    path: ["password"],
-  });
+});
+
+type CreateUserFormData = z.infer<typeof createUserSchema>;
+type UpdateUserFormData = z.infer<typeof updateUserSchema>;
 
 interface UserFormSheetProps {
   children: React.ReactNode;
@@ -67,31 +68,52 @@ export function UserFormSheet({
   onUserChange,
 }: UserFormSheetProps) {
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
   const [isOpen, setIsOpen] = useState(false);
 
-  const form = useForm<z.infer<typeof userSchema>>({
-    resolver: zodResolver(userSchema),
+  const isEditing = !!user;
+  const canCreate = hasPermission("adminUsers", "create");
+  const canUpdate = hasPermission("adminUsers", "update");
+
+  const form = useForm({
+    resolver: zodResolver(isEditing ? updateUserSchema : createUserSchema),
     defaultValues: {
-      name: user?.name || "",
-      email: user?.email || "",
-      roleId: user?.roleId || "",
+      name: "",
+      email: "",
+      roleId: "",
+      password: "",
     },
   });
 
-  const onSubmit = async (values: z.infer<typeof userSchema>) => {
+  useEffect(() => {
+    if (isOpen) {
+      form.reset({
+        name: user?.name || "",
+        email: user?.email || "",
+        roleId: user?.roleId || "",
+        password: "",
+      });
+    }
+  }, [isOpen, user, form]);
+
+  const onSubmit = async (values: CreateUserFormData | UpdateUserFormData) => {
     try {
-      if (user) {
-        await updateUser(user.id, values);
+      if (isEditing) {
+        if (!canUpdate) throw new Error("Acesso negado para atualizar usuários.");
+        const updatePayload: Partial<User> = {
+            name: values.name,
+            email: values.email,
+            roleId: values.roleId,
+        };
+        await usersApi.update(user.id, updatePayload);
         toast({
           title: "Sucesso",
           description: "Usuário atualizado com sucesso.",
         });
       } else {
-        await registerUser({
-            name: values.name,
-            email: values.email,
-            roleId: values.roleId,
-        }, values.password as string);
+        if (!canCreate) throw new Error("Acesso negado para criar usuários.");
+        const createValues = values as CreateUserFormData;
+        await authApi.register(createValues.name, createValues.email, createValues.password, createValues.roleId);
         toast({
           title: "Sucesso",
           description: "Usuário adicionado com sucesso.",
@@ -99,153 +121,80 @@ export function UserFormSheet({
       }
       onUserChange();
       setIsOpen(false);
-      form.reset();
     } catch (error) {
-      console.error("Failed to save user", error);
+      const errorMessage = (error as any)?.response?.data?.message || "Não foi possível salvar o usuário.";
       toast({
         title: "Erro",
-        description: "Não foi possível salvar o usuário.",
+        description: errorMessage,
         variant: "destructive",
       });
     }
   };
+  
+  const hasFormPermission = isEditing ? canUpdate : canCreate;
 
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetTrigger asChild>{children}</SheetTrigger>
       <SheetContent className="flex flex-col">
         <SheetHeader>
-          <SheetTitle>{user ? "Editar Usuário" : "Adicionar Usuário"}</SheetTitle>
+          <SheetTitle>{isEditing ? "Editar Usuário" : "Adicionar Usuário"}</SheetTitle>
         </SheetHeader>
-        <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-grow">
-                <ScrollArea className="flex-grow pr-6">
-                    <div className="space-y-4">
-                        <FormField
-                            control={form.control}
-                            name="name"
-                            render={({ field }) => (
+        {hasFormPermission ? (
+            <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-grow">
+                    <div className="space-y-4 flex-grow">
+                        <FormField control={form.control} name="name" render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Nome</FormLabel>
-                                <FormControl>
-                                <Input placeholder="Nome do usuário" {...field} />
-                                </FormControl>
+                                <FormControl><Input placeholder="Nome do usuário" {...field} /></FormControl>
                                 <FormMessage />
                             </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="email"
-                            render={({ field }) => (
+                        )} />
+                        <FormField control={form.control} name="email" render={({ field }) => (
                             <FormItem>
                                 <FormLabel>E-mail</FormLabel>
-                                <FormControl>
-                                <Input
-                                    type="email"
-                                    placeholder="E-mail do usuário"
-                                    {...field}
-                                />
-                                </FormControl>
+                                <FormControl><Input type="email" placeholder="E-mail do usuário" {...field} disabled={isEditing} /></FormControl>
                                 <FormMessage />
                             </FormItem>
-                            )}
-                        />
-                        {!user && (
-                            <FormField
-                            control={form.control}
-                            name="password"
-                            render={({ field }) => (
+                        )} />
+                        {!isEditing && (
+                            <FormField control={form.control} name="password" render={({ field }) => (
                                 <FormItem>
-                                <FormLabel>Senha</FormLabel>
-                                <FormControl>
-                                    <Input
-                                    type="password"
-                                    placeholder="Senha"
-                                    {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
+                                    <FormLabel>Senha</FormLabel>
+                                    <FormControl><Input type="password" placeholder="Mínimo de 6 caracteres" {...field} /></FormControl>
+                                    <FormMessage />
                                 </FormItem>
-                            )}
-                            />
+                            )} />
                         )}
-                        <FormField
-                            control={form.control}
-                            name="roleId"
-                            render={({ field }) => (
+                        <FormField control={form.control} name="roleId" render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Cargo</FormLabel>
-                                <Select
-                                onValueChange={field.onChange}
-                                defaultValue={field.value}
-                                >
-                                <FormControl>
-                                    <SelectTrigger>
-                                    <SelectValue placeholder="Selecione um cargo" />
-                                    </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                    {roles.map((role) => (
-                                    <SelectItem key={role.id} value={role.id}>
-                                        {role.name}
-                                    </SelectItem>
-                                    ))}
-                                </SelectContent>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><SelectTrigger><SelectValue placeholder="Selecione um cargo" /></SelectTrigger></FormControl>
+                                    <SelectContent>
+                                        {roles.map((role) => (<SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>))}
+                                    </SelectContent>
                                 </Select>
                                 <FormMessage />
                             </FormItem>
-                            )}
-                        />
+                        )} />
                     </div>
-                </ScrollArea>
-                <SheetFooter className="mt-auto pt-6">
-                    <SheetClose asChild>
-                        <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setIsOpen(false)}
-                        >
-                        Cancelar
+                    <SheetFooter className="mt-auto pt-6">
+                        <SheetClose asChild><Button type="button" variant="outline" disabled={form.formState.isSubmitting}>Cancelar</Button></SheetClose>
+                        <Button type="submit" disabled={form.formState.isSubmitting}>
+                            {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Salvar
                         </Button>
-                    </SheetClose>
-                    <Button type="submit">Salvar</Button>
-                </SheetFooter>
-            </form>
-          </Form>
+                    </SheetFooter>
+                </form>
+            </Form>
+        ) : (
+            <div className="flex items-center justify-center h-full">
+                <p className="text-muted-foreground">Você não tem permissão para realizar esta ação.</p>
+            </div>
+        )}
       </SheetContent>
     </Sheet>
   );
-}
-
-interface EditUserSheetProps {
-    user: User;
-    roles: Role[];
-    onUserChange: () => void;
-}
-
-export function EditUserSheet({ user, roles, onUserChange}: EditUserSheetProps) {
-    return (
-        <UserFormSheet user={user} roles={roles} onUserChange={onUserChange}>
-            <Button variant="ghost" size="icon">
-                <Pencil className="h-4 w-4" />
-            </Button>
-        </UserFormSheet>
-    )
-}
-
-interface AddUserSheetProps {
-    roles: Role[];
-    onUserChange: () => void;
-}
-
-export function AddUserSheet({ roles, onUserChange }: AddUserSheetProps) {
-    return (
-        <UserFormSheet roles={roles} onUserChange={onUserChange}>
-            <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Adicionar Usuário
-            </Button>
-        </UserFormSheet>
-    );
 }

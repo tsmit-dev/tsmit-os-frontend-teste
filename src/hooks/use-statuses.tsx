@@ -1,14 +1,14 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { getStatuses as fetchStatusesFromApi } from '@/lib/data';
 import { Status } from '@/lib/types';
 
 interface StatusesContextType {
   statuses: Status[];
   loading: boolean;
   getStatusById: (id: string) => Status | undefined;
+  refreshStatuses: () => void;
 }
 
 const StatusesContext = createContext<StatusesContextType | undefined>(undefined);
@@ -17,26 +17,22 @@ export function StatusesProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<Status[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const q = query(collection(db, 'statuses'), orderBy('order'));
-    const unsubscribe = onSnapshot(
-      q,
-      (querySnapshot) => {
-        const statusesData: Status[] = [];
-        querySnapshot.forEach((doc) => {
-          statusesData.push({ id: doc.id, ...doc.data() } as Status);
-        });
-        setStatuses(statusesData);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Failed to fetch statuses:', error);
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
+  const fetchStatuses = useCallback(async () => {
+    setLoading(true);
+    try {
+      const statusesData = await fetchStatusesFromApi();
+      setStatuses(statusesData);
+    } catch (error) {
+      console.error('Failed to fetch statuses:', error);
+      // Optionally, you could add toast notifications here
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchStatuses();
+  }, [fetchStatuses]);
 
   const getStatusById = (id: string) => {
     return statuses.find((status) => status.id === id);
@@ -46,6 +42,7 @@ export function StatusesProvider({ children }: { children: ReactNode }) {
     statuses,
     loading,
     getStatusById,
+    refreshStatuses: fetchStatuses,
   };
 
   return <StatusesContext.Provider value={value}>{children}</StatusesContext.Provider>;
