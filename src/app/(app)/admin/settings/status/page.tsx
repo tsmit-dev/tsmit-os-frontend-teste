@@ -3,8 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Status } from '@/lib/types';
-import { collection, onSnapshot, orderBy, query, addDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getStatuses, addStatus } from '@/lib/data';
 import { FileBadge, Plus } from 'lucide-react';
 import { StatusTable } from '@/components/status-table';
 import { useToast } from '@/hooks/use-toast';
@@ -25,24 +24,18 @@ export default function ManageStatusPage() {
 
     const canAccess = hasPermission('adminSettings');
 
-    const fetchStatuses = useCallback(() => {
-        const q = query(collection(db, "statuses"), orderBy("order"));
-        const unsubscribe = onSnapshot(
-          q,
-          (querySnapshot) => {
-            const data: Status[] = [];
-            querySnapshot.forEach((d) => data.push({ id: d.id, ...d.data() } as Status));
+    const fetchStatuses = useCallback(async () => {
+        setLoadingStatuses(true);
+        try {
+            const data = await getStatuses();
             setStatuses(data);
-            setLoadingStatuses(false);
-          },
-          (error) => {
+        } catch (error) {
             console.error("Failed to fetch statuses:", error);
-            setLoadingStatuses(false);
             toast({ title: "Erro", description: "Não foi possível carregar os status.", variant: "destructive" });
-          },
-        );
-        return () => unsubscribe();
-      }, [toast]);
+        } finally {
+            setLoadingStatuses(false);
+        }
+    }, [toast]);
 
     useEffect(() => {
         if (!loadingPermissions) {
@@ -54,8 +47,7 @@ export default function ManageStatusPage() {
                 });
                 router.replace('/dashboard');
             } else {
-                const unsubscribe = fetchStatuses();
-                return () => unsubscribe();
+                fetchStatuses();
             }
         }
     }, [loadingPermissions, canAccess, router, toast, fetchStatuses]);
@@ -66,9 +58,10 @@ export default function ManageStatusPage() {
 
     const handleSaveStatus = async (data: StatusFormValues) => {
         try {
-            await addDoc(collection(db, "statuses"), data);
+            await addStatus(data);
             toast({ title: "Sucesso!", description: "Novo status criado com sucesso." });
             setAddStatusDialogOpen(false);
+            fetchStatuses(); // Refresh data
         } catch (error) {
           console.error("Error saving status:", error);
           toast({

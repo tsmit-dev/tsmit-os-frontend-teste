@@ -18,11 +18,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { deleteDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { deleteStatus, updateStatus } from '@/lib/data';
 import { renderIcon } from './icon-picker';
 import { StatusFormDialog, StatusFormValues } from './status-form-dialog';
-import { updateDoc } from 'firebase/firestore';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '@/components/ui/badge';
 
@@ -49,8 +47,7 @@ export const StatusTable: React.FC<StatusTableProps> = ({ statuses, onStatusChan
     const handleSaveStatus = async (data: StatusFormValues) => {
         try {
             if (selectedStatus) {
-                const statusRef = doc(db, "statuses", selectedStatus.id);
-                await updateDoc(statusRef, data);
+                await updateStatus(selectedStatus.id, data);
                 toast({ title: "Sucesso!", description: "Status atualizado com sucesso." });
                 onStatusChange();
             }
@@ -73,19 +70,19 @@ export const StatusTable: React.FC<StatusTableProps> = ({ statuses, onStatusChan
     const confirmDelete = async () => {
         if (!statusToDelete) return;
         try {
-        await deleteDoc(doc(db, "statuses", statusToDelete.id));
-        toast({ title: "Sucesso!", description: "Status excluído com sucesso." });
-        onStatusChange();
+            await deleteStatus(statusToDelete.id);
+            toast({ title: "Sucesso!", description: "Status excluído com sucesso." });
+            onStatusChange();
         } catch (error) {
-        console.error("Error deleting status:", error);
-        toast({
-            title: "Erro",
-            description: "Ocorreu um erro ao excluir o status.",
-            variant: "destructive",
-        });
+            console.error("Error deleting status:", error);
+            toast({
+                title: "Erro",
+                description: "Ocorreu um erro ao excluir o status.",
+                variant: "destructive",
+            });
         } finally {
-        setIsDeleteDialogOpen(false);
-        setStatusToDelete(null);
+            setIsDeleteDialogOpen(false);
+            setStatusToDelete(null);
         }
     };
 
