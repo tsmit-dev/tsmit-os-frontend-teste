@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Client, ProvidedService } from "@/lib/types";
-import { clientsApi, servicesApi } from "@/lib/api";
+import { clientApi, serviceApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sheet,
@@ -63,7 +63,7 @@ export function ClientFormSheet({ client, onClientChange, children }: ClientForm
         if (isOpen) {
             setLoadingServices(true);
             try {
-                const services = await servicesApi.getAll();
+                const services = await serviceApi.getAll();
                 setProvidedServices(services);
             } catch (error) {
                 toast({ title: "Erro", description: "Falha ao carregar os serviços disponíveis.", variant: "destructive" });
@@ -105,10 +105,10 @@ export function ClientFormSheet({ client, onClientChange, children }: ClientForm
   const onSubmit = async (values: ClientFormData) => {
     try {
       if (client) {
-        await clientsApi.update(client.id, values);
+        await clientApi.update(client.id, values);
         toast({ title: "Sucesso", description: "Cliente atualizado." });
       } else {
-        await clientsApi.create(values);
+        await clientApi.create(values);
         toast({ title: "Sucesso", description: "Cliente criado." });
       }
       handleOpenChange(false);
