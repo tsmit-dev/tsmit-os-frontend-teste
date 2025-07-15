@@ -1,9 +1,9 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, Role, Permissions } from '@/lib/types';
-import { auth } from '@/lib/firebase';
-import { getUserById } from '@/lib/data';
+import { getRoleById, getRoles } from '@/lib/data'; // We still need getRoleById for now
+import { useAuth } from '@/components/auth-provider'; // Import useAuth to get user
 
 interface PermissionsContextType {
   userPermissions: Permissions | null;
@@ -14,43 +14,47 @@ interface PermissionsContextType {
 
 const PermissionsContext = createContext<PermissionsContextType | undefined>(undefined);
 
-export function PermissionsProvider({ children }: { children: React.ReactNode }) {
+export function PermissionsProvider({ children }: { children: ReactNode }) {
+  const { user, loading: authLoading } = useAuth(); // Get user from AuthContext
   const [userPermissions, setUserPermissions] = useState<Permissions | null>(null);
   const [userRole, setUserRole] = useState<Role | null>(null);
   const [loadingPermissions, setLoadingPermissions] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      setLoadingPermissions(true);
-      if (user) {
+    const fetchPermissions = async () => {
+      if (user && user.roleId) {
+        setLoadingPermissions(true);
         try {
-          const fetchedUser = await getUserById(user.uid);
-          if (fetchedUser && fetchedUser.role) {
-            setUserPermissions(fetchedUser.role.permissions);
-            setUserRole(fetchedUser.role);
+          // In the future, this should come from a /roles/:id endpoint
+          const role = await getRoleById(user.roleId);
+          if (role) {
+            setUserPermissions(role.permissions);
+            setUserRole(role);
           } else {
             setUserPermissions(null);
             setUserRole(null);
-            console.warn("User has no role or permissions defined.");
           }
         } catch (error) {
-          console.error("Error fetching user role and permissions:", error);
+          console.error("Error fetching role and permissions:", error);
           setUserPermissions(null);
           setUserRole(null);
+        } finally {
+          setLoadingPermissions(false);
         }
       } else {
         setUserPermissions(null);
         setUserRole(null);
+        setLoadingPermissions(false);
       }
-      setLoadingPermissions(false);
-    });
+    };
 
-    return () => unsubscribe();
-  }, []);
+    if (!authLoading) {
+      fetchPermissions();
+    }
+  }, [user, authLoading]);
 
   const hasPermission = (permissionKey: keyof Permissions): boolean => {
-    if (loadingPermissions) return false; // Or handle as desired during loading
-    if (!userPermissions) return false; // No permissions if not logged in or role not found
+    if (loadingPermissions || !userPermissions) return false;
     return userPermissions[permissionKey] === true;
   };
 

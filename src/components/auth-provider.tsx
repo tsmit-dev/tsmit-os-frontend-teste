@@ -2,11 +2,8 @@
 
 import React, { createContext, useState, useContext, ReactNode, useCallback, useEffect } from 'react';
 import { User } from '@/lib/types';
-import { auth, db } from '@/lib/firebase';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseAuthUser } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { getUserById } from '@/lib/data'; // Ensure getUserById is imported
-import { PermissionsProvider, usePermissions } from '@/context/PermissionsContext'; // Import PermissionsProvider
+import { login as apiLogin, logout as apiLogout, getMe } from '@/lib/api';
+import { PermissionsProvider, usePermissions } from '@/context/PermissionsContext';
 
 interface AuthContextType {
   user: User | null;
@@ -15,71 +12,61 @@ interface AuthContextType {
   loading: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const fetchUserData = useCallback(async (firebaseUser: FirebaseAuthUser) => {
-    console.log("fetchUserData: Attempting to fetch user data for UID:", firebaseUser.uid);
+  const fetchUserData = useCallback(async () => {
+    setLoading(true);
     try {
-      const fetchedUser = await getUserById(firebaseUser.uid); // This already fetches role
-
-      if (fetchedUser) {
-        console.log("fetchUserData: User data found:", fetchedUser);
-        setUser(fetchedUser);
-      } else {
-        console.warn("fetchUserData: User data NOT found in Firestore for UID:", firebaseUser.uid, ". Logging out.");
-        await signOut(auth);
-        setUser(null);
-      }
+      const response = await getMe();
+      const apiUser = response.data.user;
+      
+      const userData: User = {
+        id: apiUser.id,
+        email: apiUser.email,
+        name: apiUser.user_metadata.name,
+        roleId: apiUser.user_metadata.roleId,
+        role: null, // Role details will be fetched by PermissionsProvider
+      };
+      setUser(userData);
     } catch (error) {
-      console.error("fetchUserData: Error fetching user data:", error);
+      console.error("Failed to fetch user data", error);
       setUser(null);
+      apiLogout(); // Clear token if fetching user fails
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.log("onAuthStateChanged: Firebase user state changed. User:", firebaseUser);
-      if (firebaseUser) {
-        fetchUserData(firebaseUser);
-      } else {
-        console.log("onAuthStateChanged: User is signed out.");
-        setUser(null);
-        setLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      fetchUserData();
+    } else {
+      setLoading(false);
+    }
   }, [fetchUserData]);
 
   const login = useCallback(async (email: string, pass: string): Promise<boolean> => {
     setLoading(true);
-    console.log("Login: Attempting to sign in with email:", email);
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, pass);
-      console.log("Login: Successfully signed in. Firebase User UID:", userCredential.user.uid);
+      await apiLogin(email, pass);
+      await fetchUserData(); // Fetch user data after successful login
       return true;
-    } catch (error: any) {
-      console.error("Login error:", error.message);
+    } catch (error) {
+      console.error("Login failed:", error);
       setUser(null);
       setLoading(false);
       return false;
     }
-  }, []);
+  }, [fetchUserData]);
 
-  const handleLogout = useCallback(async () => {
-    console.log("Logout: Attempting to sign out.");
-    try {
-      await signOut(auth);
-      console.log("Logout: Successfully signed out.");
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
+  const handleLogout = useCallback(() => {
+    apiLogout();
+    setUser(null);
   }, []);
 
   return (
@@ -98,9 +85,9 @@ export const useAuth = () => {
 
   return {
     ...context,
-    userPermissions, // Expose permissions from PermissionsContext
-    userRole,        // Expose user's role object
-    hasPermission,   // Expose hasPermission utility
-    loadingPermissions, // Expose loading state for permissions
+    userPermissions,
+    userRole,
+    hasPermission,
+    loadingPermissions,
   };
 };
