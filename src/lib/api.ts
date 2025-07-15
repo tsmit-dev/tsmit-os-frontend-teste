@@ -1,9 +1,10 @@
 
 import axios from 'axios';
 import { ServiceOrder, Client, Role, User, ProvidedService, Status, EmailSettings } from './types';
+import { toSnakeCase, toCamelCase } from './utils';
 
 const api = axios.create({
-  baseURL: 'https://tsmit-os-backend-node.netlify.app',
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
 });
 
 api.interceptors.request.use(config => {
@@ -14,16 +15,27 @@ api.interceptors.request.use(config => {
   return config;
 });
 
-// Helper function to handle response data
-const handleResponse = (response: any) => response.data;
-
-// Generic CRUD factory
-const createCrudService = <T>(resource: string) => ({
-  getAll: (): Promise<T[]> => api.get(`/${resource}`).then(handleResponse),
-  getById: (id: string): Promise<T> => api.get(`/${resource}/${id}`).then(handleResponse),
-  create: (data: Partial<T>): Promise<T> => api.post(`/${resource}`, data).then(handleResponse),
-  update: (id: string, data: Partial<T>): Promise<T> => api.put(`/${resource}/${id}`, data).then(handleResponse),
-  remove: (id: string): Promise<void> => api.delete(`/${resource}/${id}`).then(handleResponse),
+// --- Generic CRUD Factory ---
+const createCrudFunctions = <T>(resource: string) => ({
+  getAll: async (): Promise<T[]> => {
+    const response = await api.get(`/${resource}`);
+    return toCamelCase(response.data);
+  },
+  getById: async (id: string): Promise<T | null> => {
+    const response = await api.get(`/${resource}/${id}`);
+    return toCamelCase(response.data);
+  },
+  create: async (data: Partial<T>): Promise<T> => {
+    const response = await api.post(`/${resource}`, toSnakeCase(data));
+    return toCamelCase(response.data);
+  },
+  update: async (id: string, data: Partial<T>): Promise<T | null> => {
+    const response = await api.put(`/${resource}/${id}`, toSnakeCase(data));
+    return toCamelCase(response.data);
+  },
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/${resource}/${id}`);
+  },
 });
 
 // --- API Resources ---
@@ -45,20 +57,42 @@ export const authApi = {
   },
 };
 
-export const osApi = {
-  ...createCrudService<ServiceOrder>('os'),
-  updateStatus: (id: string, newStatusId: string, observation?: string): Promise<ServiceOrder> => {
-    return api.put(`/os/${id}/status`, { newStatusId, observation }).then(handleResponse);
-  }
+export const serviceOrderApi = {
+    getAll: async (): Promise<ServiceOrder[]> => {
+        const response = await api.get('/os');
+        return toCamelCase(response.data);
+    },
+    getById: async (id: string): Promise<ServiceOrder | null> => {
+        const response = await api.get(`/os/${id}`);
+        return toCamelCase(response.data);
+    },
+    create: async (data: Partial<ServiceOrder>): Promise<ServiceOrder> => {
+        const response = await api.post('/os', toSnakeCase(data));
+        return toCamelCase(response.data);
+    },
+    update: async (id: string, data: Partial<ServiceOrder>): Promise<ServiceOrder | null> => {
+        const response = await api.put(`/os/${id}`, toSnakeCase(data));
+        return toCamelCase(response.data);
+    },
+    updateStatus: async (id: string, newStatusId: string, observation?: string): Promise<ServiceOrder | null> => {
+        const response = await api.put(`/os/${id}/status`, { new_status_id: newStatusId, observation });
+        return toCamelCase(response.data);
+    },
 };
 
-export const clientsApi = createCrudService<Client>('clients');
-export const rolesApi = createCrudService<Role>('roles');
-export const usersApi = createCrudService<User>('users');
-export const servicesApi = createCrudService<ProvidedService>('services');
-export const statusesApi = createCrudService<Status>('statuses');
+export const clientApi = createCrudFunctions<Client>('clients');
+export const roleApi = createCrudFunctions<Role>('roles');
+export const userApi = createCrudFunctions<User>('users');
+export const serviceApi = createCrudFunctions<ProvidedService>('services');
+export const statusApi = createCrudFunctions<Status>('statuses');
 
 export const settingsApi = {
-  getEmailSettings: (): Promise<EmailSettings> => api.get('/settings/email').then(handleResponse),
-  updateEmailSettings: (data: EmailSettings): Promise<EmailSettings> => api.put('/settings/email', data).then(handleResponse),
-};
+    getEmailSettings: async(): Promise<EmailSettings> => {
+        const response = await api.get('/settings/email');
+        return toCamelCase(response.data);
+    },
+    updateEmailSettings: async(data: Partial<EmailSettings>): Promise<EmailSettings> => {
+        const response = await api.put('/settings/email', toSnakeCase(data));
+        return toCamelCase(response.data);
+    }
+}

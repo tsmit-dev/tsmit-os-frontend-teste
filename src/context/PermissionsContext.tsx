@@ -1,68 +1,74 @@
-
 "use client";
 
-import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
-import { Role, Permissions } from '@/lib/types';
-import { rolesApi } from '@/lib/api';
-import { useAuth as useAuthFromProvider } from '@/components/auth-provider'; // Renamed to avoid circular dependency
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { User, Role, Permissions } from '@/lib/types';
+import { getRoleById } from '@/lib/data'; 
+import { useAuth } from '@/components/auth-provider';
 
 interface PermissionsContextType {
+  userPermissions: Permissions | null;
   userRole: Role | null;
-  userPermissions: Permissions;
+  hasPermission: (permissionKey: keyof Permissions) => boolean;
   loadingPermissions: boolean;
-  hasPermission: (resource: string, action: string) => boolean;
 }
 
 const PermissionsContext = createContext<PermissionsContextType | undefined>(undefined);
 
-export const PermissionsProvider = ({ children }: { children: ReactNode }) => {
-  const { user } = useAuthFromProvider();
+export function PermissionsProvider({ children }: { children: ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
+  const [userPermissions, setUserPermissions] = useState<Permissions | null>(null);
   const [userRole, setUserRole] = useState<Role | null>(null);
-  const [loadingPermissions, setLoadingPermissions] = useState<boolean>(true);
-
-  const fetchRole = useCallback(async (roleId: string) => {
-    setLoadingPermissions(true);
-    try {
-      const role = await rolesApi.getById(roleId);
-      setUserRole(role);
-    } catch (error) {
-      console.error("Failed to fetch user role", error);
-      setUserRole(null);
-    } finally {
-      setLoadingPermissions(false);
-    }
-  }, []);
+  const [loadingPermissions, setLoadingPermissions] = useState(true);
 
   useEffect(() => {
-    if (user && user.roleId) {
-      fetchRole(user.roleId);
-    } else {
-      setUserRole(null);
-      setLoadingPermissions(false);
-    }
-  }, [user, fetchRole]);
+    const fetchPermissions = async () => {
+      if (user && user.roleId) {
+        setLoadingPermissions(true);
+        try {
+          // Fetch role from the new API
+          const role = await getRoleById(user.roleId); 
+          if (role) {
+            setUserPermissions(role.permissions);
+            setUserRole(role);
+          } else {
+            setUserPermissions(null);
+            setUserRole(null);
+          }
+        } catch (error) {
+          console.error("Error fetching role and permissions:", error);
+          setUserPermissions(null);
+          setUserRole(null);
+        } finally {
+          setLoadingPermissions(false);
+        }
+      } else {
+        setUserPermissions(null);
+        setUserRole(null);
+        setLoadingPermissions(false);
+      }
+    };
 
-  const userPermissions = userRole?.permissions || {};
-
-  const hasPermission = (resource: string, action: string): boolean => {
-    const resourcePermissions = userPermissions[resource];
-    if (!resourcePermissions) {
-      return false; // No permissions for this resource
+    if (!authLoading) {
+      fetchPermissions();
     }
-    return resourcePermissions.includes(action) || resourcePermissions.includes('all');
+  }, [user, authLoading]);
+
+  const hasPermission = (permissionKey: keyof Permissions): boolean => {
+    if (loadingPermissions || !userPermissions) return false;
+    return userPermissions[permissionKey] === true;
   };
 
   return (
-    <PermissionsContext.Provider value={{ userRole, userPermissions, loadingPermissions, hasPermission }}>
+    <PermissionsContext.Provider value={{ userPermissions, userRole, hasPermission, loadingPermissions }}>
       {children}
     </PermissionsContext.Provider>
   );
-};
+}
 
-export const usePermissions = () => {
+export function usePermissions() {
   const context = useContext(PermissionsContext);
   if (context === undefined) {
-    throw new Error('usePermissions must be used within a PermissionsProvider');
+    throw new Error("usePermissions must be used within a PermissionsProvider");
   }
   return context;
-};
+}

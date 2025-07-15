@@ -29,7 +29,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email: apiUser.email,
         name: apiUser.user_metadata.name,
         roleId: apiUser.user_metadata.roleId,
-        role: undefined, 
+        role: null, 
       };
       setUser(userData);
     } catch (error) {
